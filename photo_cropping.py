@@ -16,7 +16,7 @@ kk = int(transform_to[0]) / int(transform_to[1])
 step = 30
 
 max_height = 1080
-imgs = input("Path to your photos folder: ")
+imgs = input("Path to your photos folder: ") + "/"
 where_to_safe = input("Where to save results: ")
 print("Loading ...")
 
