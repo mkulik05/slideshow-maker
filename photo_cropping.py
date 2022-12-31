@@ -7,14 +7,14 @@ from screeninfo import get_monitors
 
 
 FPS = 30
-seconds = 5
-framesForImg = FPS * seconds
+secondsForFrame = 5
 backupFile = "data.json"
 outputFile = "main2.mkv"
-step = 30
 fadeDur = 0.3
 sortByDate = False
+step = 30
 
+framesForImg = FPS * secondsForFrame
 displayQuality = (1280, 720)
 for m in get_monitors():
   if m.is_primary:
@@ -142,8 +142,9 @@ else:
 photos = []
 imgTypes = ['jpg', 'png', 'jpeg']
 for file in allFiles:
-  if file.split('.')[1] in imgTypes:
-    photos.append(file)
+  if len(file.split('.')) > 1:
+    if file.split('.')[1].lower() in imgTypes:
+      photos.append(file)
 
 if len(photos) > 0:
   print("Found this photos: \n", photos)
@@ -280,7 +281,8 @@ for path in photos:
             "imgSize": img.shape[:2]
           }
 
-if len(photos) > 0: 
+if len(photos) > 0:
+  cv2.destroyWindow("Result")
   d = json.dumps(data)
   with open(backupFile, 'w') as f:
     f.write(d)
