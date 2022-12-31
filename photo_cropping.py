@@ -3,17 +3,26 @@ import numpy as np
 import os
 import sys
 import json
+from screeninfo import get_monitors
 
-inp = input("Do you want to import backup file? (y/n)")
+displayQuality = (1280, 720)
+for m in get_monitors():
+  if m.is_primary:
+    displayQuality = (round(m.width / 1.5), round(m.height / 1.5))
+
+backupFile = "data.json"
+inp = input("Do you want to import backup file? (y/n): ")
 if inp == "y":
-  with open("data.json") as f:
+  with open(backupFile) as f:
     data = json.load(f)
+  print("Loaded backup file: ", backupFile)
 else:
   data = {}
 quality = (1920, 1080)
+
 transform_to = input("Crop to: (ex. 16:9) ").split(":")
 ratio = int(transform_to[0]) / int(transform_to[1])
-
+outputFile = "main.mkv"
 step = 30
 
 max_height = 1080
@@ -29,14 +38,7 @@ framesForImg = FPS * seconds
 def getPoint(frame, sPoint, fPoint):
   global framesForImg
   return sPoint + (fPoint - sPoint) * frame // framesForImg
-
-def rescale(img, scale_percent):
-  width = int(img.shape[1] * scale_percent / 100)
-  height = int(img.shape[0] * scale_percent / 100)
-  dim = (width, height)
-  resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
-  return resized
-
+# Animate image with 2 keyframes
 def animate(img, coords, mode="preview", writer=None):
   global framesForImg, FPS, quality
   for i in range(framesForImg):
@@ -45,7 +47,8 @@ def animate(img, coords, mode="preview", writer=None):
     x2 = getPoint(i, coords[0][1][0], coords[1][1][0])
     y2 = getPoint(i, coords[0][1][1], coords[1][1][1])
     if mode == "preview":
-      cv2.imshow("Preview", cv2.resize(img.copy()[y1:y2, x1:x2], quality))
+      # print(img.shape, displayQuality, img.copy()[y1:y2, x1:x2].shape, y1, y2, x1, x2)
+      cv2.imshow("Preview", cv2.resize(img.copy()[y1:y2, x1:x2], displayQuality))
       k = cv2.waitKey(int(1000/FPS)) 
       if k == 27:
         cv2.destroyWindow("Preview")
@@ -62,21 +65,24 @@ def animate(img, coords, mode="preview", writer=None):
   else:
     return None
 
+# Add black backgroung to image
 def addBlackBkg(sourceImg, size):
   res = np.zeros(size[::-1], dtype=np.uint8)
   res = cv2.merge([res, res, res])
   yS, xS = sourceImg.shape[:2]
   dX, dY = (size[0] - xS) // 2, (size[1] - yS) // 2
-  print(yS, xS, dY, dX, size)
-  if size[0] % 2 != 2:
-    shift = 1
+  if (res.shape[1] - sourceImg.shape[1]) % 2 != 0:
+    shiftX = 1
   else:
-    shift = 0
-  print(size[1], (size[0] - shift - dX),  dX, res.shape,  res[dX:(size[0] - shift - dX), 0:size[1]].shape )
-  cv2.waitKey()
-  res[0:size[1], dX:(size[0] - shift - dX)] = sourceImg
+    shiftX = 0
+  if (res.shape[0] - sourceImg.shape[0]) % 2 != 0:
+    shiftY = 1
+  else:
+    shiftY = 0
+  res[dY:((size[1] - shiftY - dY)), dX:(size[0] - shiftX - dX)] = sourceImg
   return res
 
+# Get list of files in folder, sordet by modification date
 def getfiles(dirpath):
     a = [s for s in os.listdir(dirpath)
          if os.path.isfile(os.path.join(dirpath, s))]
@@ -84,26 +90,21 @@ def getfiles(dirpath):
     return a
 
 photos = getfiles(imgs)
-print(photos)
+print("Found this photos: \n", photos)
 rectCoords = [0,0,0,0]
-continue_without_asking = False
-
-
-# horizontedImg = Tru
 
 for path in photos:
+
   if path not in data.keys():
     coords = []
-    print("photo ", path)
+    print("Current photo: ", path)
     name = path
     img = cv2.imread(imgs + path)
   
-    # Img is vertical
+    # Img is vertical, addind black lines
     if img.shape[0] > img.shape[1]:
       img = addBlackBkg(img, (int(img.shape[0] * ratio), img.shape[0]))
 
-    # yB, yT, xB, xT = (round((img.shape[0] - img.shape[1] / ratio) / 2), img.shape[0] -
-    #                   round((img.shape[0] - img.shape[1] / ratio) / 2), 0, img.shape[1])
     xB, yB = (0, 0)
     if round(img.shape[1] / ratio) > img.shape[0]:
       w, h =  (
@@ -115,80 +116,123 @@ for path in photos:
           img.shape[1], 
           round(img.shape[1] / ratio), 
         )
-  
 
-    if img.shape[0] > max_height:
-      percents = round(100 / (img.shape[0] / max_height) / 1.5)
-    else:
-      percents = 100
     while len(coords) < 2:
       imgDraft = cv2.rectangle(img.copy(), (xB, yB), (xB + w, yB + h), (255, 255, 0), 3)
 
-      cv2.imshow("Result", rescale(imgDraft, percents))
+      cv2.imshow("Result", cv2.resize(imgDraft, displayQuality))
       k = cv2.waitKey()
+
+      # Save keyframe
       if k == ord("e"):
         print("> Keyframe saved")
         coords.append([(xB, yB), (xB + w, yB + h)])
         
+      # Shift to bottom
       elif k == ord("s"):
         if yB + h + step <= img.shape[0] - 1:
           yB += step
+      
+      # Shift to top
       elif k == ord("w"):
         if yB - step >= 0:
           yB -= step
         else:
           yB = 0
-      elif k == ord(">"):
-        step += 2
-      elif k == ord("<"):
-        if step - 2 >= 0:
-          step -= 2
+
+      # Shift to the left
       elif k == ord("a"):
         if xB - step >= 0:
           xB -= step
         else:
           xB = 0
+      
+      # Shift to the right
       elif k == ord("d"):
         if xB + w + step <= img.shape[1] - 1:
           xB += step
+
+      # Vertical centering
+      elif k == ord("f"):
+        Ysize, Xsize = img.shape[:2]
+        yB = Ysize // 2 - h // 2
+
+      # Horizontal centering
+      elif k == ord("c"):
+        Ysize, Xsize = img.shape[:2]
+        xB = Xsize // 2 - w // 2
+
+      # Inc step
+      elif k == ord(">"):
+        step += 2
+
+      # Dec step
+      elif k == ord("<"):
+        if step - 2 >= 0:
+          step -= 2
+
+      # Decreaze size of selection
       elif k == ord("z"):
         if w - step > 0 and h - step > 0:
           w -= round(step * ratio)
           h -= step
 
-            
+      # Increase size of selection
       elif k == ord("x"):
-        if xB + w + step < img.shape[1] and yB + h + step < img.shape[0]:
+        if not(xB + w + step < img.shape[1] and yB + h + step < img.shape[0]):
+          if len(coords) >= 1:
+            print("Rescaling is not allowed after first keyframe created")
+          else:
+            if not (xB + w + step < img.shape[1]):
+              img = addBlackBkg(img, (xB + w + step, img.shape[0]))
+            if not (yB + h + step < img.shape[0]):
+              img = addBlackBkg(img, (img.shape[1], yB + h + step))
+            w += round(step * ratio)
+            h += step
+        else:
           w += round(step * ratio)
           h += step
           
+      # Stop program
       elif k == 27:
         d = json.dumps(data)
-        with open('data.json', 'w') as f:
+        with open(backupFile, 'w') as f:
           f.write(d)
         print("> Data is backed up\n   Goodbye")
         sys.exit()
-      if len(coords) == 2:
+
+      # Check are there enough keyframes for animation or not
+      if len(coords) >= 2:
         k = animate(img, coords, "preview")
         if k != ord("y"):
           coords = []
         else:
-          data[path] = coords
+          data[path] = {
+            "coords": coords,
+            "imgSize": img.shape[:2]
+          }
   
 d = json.dumps(data)
-with open('data.json', 'w') as f:
+with open(backupFile, 'w') as f:
   f.write(d)
 print("> Data is backed up")
 print("> Started video creation")
-print(data)
-video = cv2.VideoWriter('main.mkv',cv2.VideoWriter_fourcc(*'DIVX'), FPS, quality)
+video = cv2.VideoWriter(outputFile,cv2.VideoWriter_fourcc(*'DIVX'), FPS, quality)
+
+# Starting render
 for i in range(len(photos)):
+  # print(i)
   photo = photos[i]
-  coords = data[photo]
+  coords = data[photo]["coords"]
+  correctImgSize = data[photo]["imgSize"][::-1]
   img = cv2.imread(imgs + photo)
   if img.shape[0] > img.shape[1]:
-    img = addBlackBkg(img, (int(img.shape[0] * ratio), img.shape[0])) 
+    img = addBlackBkg(img, (int(img.shape[0] * ratio), img.shape[0]))
+  if img.shape[:2] != correctImgSize:
+    img = addBlackBkg(img, correctImgSize)
+
   animate(img, coords, "render", video)
-  print("\rProcessed: {}/".format(i + 1, len(photos)), end="") 
-print("> Done")
+  print("\rProcessed: {}/{}".format(i + 1, len(photos)), end="") 
+print("\n> Done")
+
 video.release()
