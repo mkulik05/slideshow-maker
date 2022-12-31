@@ -12,12 +12,20 @@ framesForImg = FPS * seconds
 backupFile = "data.json"
 outputFile = "main.mkv"
 step = 30
+sortByDate = False
 
 displayQuality = (1280, 720)
 for m in get_monitors():
   if m.is_primary:
-    displayQuality = (round(m.width / 1.5), round(m.height / 1.5))
+    displayQuality = (m.width, m.height)
 
+
+def rescale(img, scale_percent):
+    width = int(img.shape[1] * scale_percent / 100)
+    height = int(img.shape[0] * scale_percent / 100)
+    dim = (width, height)
+    resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+    return resized
 
 inp = input("Do you want to import backup file? (y/n): ").strip()
 if inp == "y":
@@ -56,15 +64,7 @@ while True:
   else:
     print("Path you entered does not exist")
 
-while True:
-  where_to_safe = input("Where to save results: ").strip() + "/"
-  if os.path.exists(where_to_safe):
-    break
-  else:
-    print("Path you entered does not exist")
-
 print("Loading ...")
-
 
 def getPoint(frame, sPoint, fPoint):
   global framesForImg
@@ -78,8 +78,7 @@ def animate(img, coords, mode="preview", writer=None):
     x2 = getPoint(i, coords[0][1][0], coords[1][1][0])
     y2 = getPoint(i, coords[0][1][1], coords[1][1][1])
     if mode == "preview":
-      # print(img.shape, displayQuality, img.copy()[y1:y2, x1:x2].shape, y1, y2, x1, x2)
-      cv2.imshow("Preview", cv2.resize(img.copy()[y1:y2, x1:x2], displayQuality))
+      cv2.imshow("Preview", cv2.resize(img.copy()[y1:y2, x1:x2], (round(displayQuality[0] / 1.5), round(displayQuality[1] / 1.5))))
       k = cv2.waitKey(int(1000/FPS)) 
       if k == 27:
         cv2.destroyWindow("Preview")
@@ -120,7 +119,11 @@ def getfiles(dirpath):
     a.sort(key=lambda s: os.path.getmtime(os.path.join(dirpath, s)))
     return a
 
-allFiles = getfiles(imgs)
+if sortByDate:
+  allFiles = getfiles(imgs)
+else:
+  allFiles = os.listdir(imgs)
+  allFiles.sort()
 photos = []
 imgTypes = ['jpg', 'png', 'jpeg']
 for file in allFiles:
@@ -161,7 +164,11 @@ for path in photos:
     while len(coords) < 2:
       imgDraft = cv2.rectangle(img.copy(), (xB, yB), (xB + w, yB + h), (255, 255, 0), 3)
 
-      cv2.imshow("Result", cv2.resize(imgDraft, displayQuality))
+      if img.shape[0] > displayQuality[1]:
+          percents = round(100 / (img.shape[0]/displayQuality[1]) / 1.5)
+      else:
+          percents = 100
+      cv2.imshow("Result", rescale(imgDraft, percents))
       k = cv2.waitKey()
 
       # Save keyframe
@@ -180,6 +187,9 @@ for path in photos:
           yB -= step
         else:
           yB = 0
+
+      elif k == ord("r"):
+        xB, yB = 0, 0
 
       # Shift to the left
       elif k == ord("a"):
@@ -204,13 +214,13 @@ for path in photos:
         xB = Xsize // 2 - w // 2
 
       # Inc step
-      elif k == ord(">"):
-        step += 2
+      elif k == ord("m"):
+        step += 5
 
       # Dec step
-      elif k == ord("<"):
-        if step - 2 >= 0:
-          step -= 2
+      elif k == ord("n"):
+        if step - 5 >= 0:
+          step -= 5
 
       # Decreaze size of selection
       elif k == ord("z"):
@@ -246,8 +256,10 @@ for path in photos:
       if len(coords) >= 2:
         k = animate(img, coords, "preview")
         if k != ord("y"):
+          print("Deleted keyframes")
           coords = []
         else:
+          print("All keyframes were saved")
           data[path] = {
             "coords": coords,
             "imgSize": img.shape[:2]
