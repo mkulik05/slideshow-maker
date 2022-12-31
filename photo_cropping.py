@@ -35,24 +35,28 @@ if inp == "y":
     print("Loaded backup file: ", backupFile)
   else:
     print("Error while loading backup file: Path does not exist")
-    data = {}
+    data = {'size': [], 'keyframes': {}}
 else:
-  data = {}
+  data = {'size': [], 'keyframes': {}}
 
-while True:
-  transform2res = input("Crop to resolution: (ex. 1920x1080) ").strip()
-  if 'x' in transform2res:
-    transform2res = transform2res.split('x')
-    if len(transform2res) == 2:
-      try:
-        transform2res = [int(x) for x in transform2res]
-        break
-      except:
+if len(data['size']) != 2:
+  while True:
+    transform2res = input("Crop to resolution: (ex. 1920x1080) ").strip()
+    if 'x' in transform2res:
+      transform2res = transform2res.split('x')
+      if len(transform2res) == 2:
+        try:
+          transform2res = [int(x) for x in transform2res]
+          break
+        except:
+          print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
+      else:
         print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
     else:
       print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
-  else:
-    print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
+  data['size'] = transform2res
+else:
+  transform2res = data['size']
 
 quality = transform2res
 ratio = int(transform2res[0]) / int(transform2res[1])
@@ -138,7 +142,7 @@ else:
 rectCoords = [0,0,0,0]
 for path in photos:
 
-  if path not in data.keys():
+  if path not in data['keyframes'].keys():
     coords = []
     print("Current photo: ", path)
     name = path
@@ -260,7 +264,7 @@ for path in photos:
           coords = []
         else:
           print("All keyframes were saved")
-          data[path] = {
+          data["keyframes"][path] = {
             "coords": coords,
             "imgSize": img.shape[:2]
           }
@@ -277,8 +281,8 @@ if len(photos) > 0:
 for i in range(len(photos)):
   # print(i)
   photo = photos[i]
-  coords = data[photo]["coords"]
-  correctImgSize = data[photo]["imgSize"][::-1]
+  coords = data["keyframes"][photo]["coords"]
+  correctImgSize = data["keyframes"][photo]["imgSize"][::-1]
   img = cv2.imread(imgs + photo)
   if img.shape[0] > img.shape[1]:
     img = addBlackBkg(img, (int(img.shape[0] * ratio), img.shape[0]))
