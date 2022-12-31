@@ -10,8 +10,9 @@ FPS = 30
 seconds = 5
 framesForImg = FPS * seconds
 backupFile = "data.json"
-outputFile = "main.mkv"
+outputFile = "main2.mkv"
 step = 30
+fadeDur = 0.3
 sortByDate = False
 
 displayQuality = (1280, 720)
@@ -91,7 +92,14 @@ def animate(img, coords, mode="preview", writer=None):
         cv2.destroyWindow("Preview")
         return k
     else:
-      writer.write(cv2.resize(img.copy()[y1:y2, x1:x2], quality))
+      frame = cv2.resize(img.copy()[y1:y2, x1:x2], quality)
+      fadeInStop = FPS * fadeDur
+      fadeOutStart = framesForImg - FPS * fadeDur
+      if i < fadeInStop:
+        frame = changeBrightness(frame, round(i / (FPS * fadeDur) * 100))
+      if i > fadeOutStart:
+        frame = changeBrightness(frame, round((framesForImg - i) / fadeInStop * 100))
+      writer.write(frame)
   if mode == "preview":  
     k = cv2.waitKey()
     cv2.destroyWindow("Preview")
@@ -115,6 +123,9 @@ def addBlackBkg(sourceImg, size):
     shiftY = 0
   res[dY:((size[1] - shiftY - dY)), dX:(size[0] - shiftX - dX)] = sourceImg
   return res
+
+def changeBrightness(img, br):
+  return np.round(img * (br / 100)).astype(np.uint8)
 
 # Get list of files in folder, sordet by modification date
 def getfiles(dirpath):
