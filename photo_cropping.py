@@ -5,35 +5,66 @@ import sys
 import json
 from screeninfo import get_monitors
 
+
+FPS = 30
+seconds = 5
+framesForImg = FPS * seconds
+backupFile = "data.json"
+outputFile = "main.mkv"
+step = 30
+
 displayQuality = (1280, 720)
 for m in get_monitors():
   if m.is_primary:
     displayQuality = (round(m.width / 1.5), round(m.height / 1.5))
 
-backupFile = "data.json"
-inp = input("Do you want to import backup file? (y/n): ")
+
+inp = input("Do you want to import backup file? (y/n): ").strip()
 if inp == "y":
-  with open(backupFile) as f:
-    data = json.load(f)
-  print("Loaded backup file: ", backupFile)
+  if os.path.exists(backupFile):
+    with open(backupFile) as f:
+      data = json.load(f)
+    print("Loaded backup file: ", backupFile)
+  else:
+    print("Error while loading backup file: Path does not exist")
+    data = {}
 else:
   data = {}
-quality = (1920, 1080)
 
-transform_to = input("Crop to: (ex. 16:9) ").split(":")
-ratio = int(transform_to[0]) / int(transform_to[1])
-outputFile = "main.mkv"
-step = 30
+while True:
+  transform2res = input("Crop to resolution: (ex. 1920x1080) ").strip()
+  if 'x' in transform2res:
+    transform2res = transform2res.split('x')
+    if len(transform2res) == 2:
+      try:
+        transform2res = [int(x) for x in transform2res]
+        break
+      except:
+        print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
+    else:
+      print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
+  else:
+    print("Incorrect image size. Dimensions should be splitted by 'x' (f.e. 1920x1080)")
 
-max_height = 1080
-imgs = input("Path to your photos folder: ") + "/"
-where_to_safe = input("Where to save results: ")
+quality = transform2res
+ratio = int(transform2res[0]) / int(transform2res[1])
+
+while True:
+  imgs = input("Path to your photos folder: ").strip() + "/"
+  if os.path.exists(imgs):
+    break
+  else:
+    print("Path you entered does not exist")
+
+while True:
+  where_to_safe = input("Where to save results: ").strip() + "/"
+  if os.path.exists(where_to_safe):
+    break
+  else:
+    print("Path you entered does not exist")
+
 print("Loading ...")
 
-
-FPS = 30
-seconds = 5
-framesForImg = FPS * seconds
 
 def getPoint(frame, sPoint, fPoint):
   global framesForImg
@@ -89,10 +120,19 @@ def getfiles(dirpath):
     a.sort(key=lambda s: os.path.getmtime(os.path.join(dirpath, s)))
     return a
 
-photos = getfiles(imgs)
-print("Found this photos: \n", photos)
-rectCoords = [0,0,0,0]
+allFiles = getfiles(imgs)
+photos = []
+imgTypes = ['jpg', 'png', 'jpeg']
+for file in allFiles:
+  if file.split('.')[1] in imgTypes:
+    photos.append(file)
 
+if len(photos) > 0:
+  print("Found this photos: \n", photos)
+else:
+  print("Selected directory does not contain any images of types: ", ', '.join(imgTypes))
+
+rectCoords = [0,0,0,0]
 for path in photos:
 
   if path not in data.keys():
@@ -106,6 +146,7 @@ for path in photos:
       img = addBlackBkg(img, (int(img.shape[0] * ratio), img.shape[0]))
 
     xB, yB = (0, 0)
+    # Calculating rect size, depends on source photo ratio
     if round(img.shape[1] / ratio) > img.shape[0]:
       w, h =  (
           round(img.shape[0] * ratio),
@@ -211,13 +252,14 @@ for path in photos:
             "coords": coords,
             "imgSize": img.shape[:2]
           }
-  
-d = json.dumps(data)
-with open(backupFile, 'w') as f:
-  f.write(d)
-print("> Data is backed up")
-print("> Started video creation")
-video = cv2.VideoWriter(outputFile,cv2.VideoWriter_fourcc(*'DIVX'), FPS, quality)
+
+if len(photos) > 0: 
+  d = json.dumps(data)
+  with open(backupFile, 'w') as f:
+    f.write(d)
+  print("> Data is backed up")
+  print("> Started video creation")
+  video = cv2.VideoWriter(outputFile,cv2.VideoWriter_fourcc(*'DIVX'), FPS, quality)
 
 # Starting render
 for i in range(len(photos)):
@@ -233,6 +275,7 @@ for i in range(len(photos)):
 
   animate(img, coords, "render", video)
   print("\rProcessed: {}/{}".format(i + 1, len(photos)), end="") 
-print("\n> Done")
+if len(photos) > 0: 
+  print("\n> Done\nResult is saved to: ", outputFile)
 
 video.release()
