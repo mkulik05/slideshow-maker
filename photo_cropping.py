@@ -5,15 +5,16 @@ import sys
 import json
 from screeninfo import get_monitors
 
-
 FPS = 30
 secondsForFrame = 5
-backupFile = "data.json"
-outputFile = "main2.mkv"
+backupFile = "backup_data.json"
+outputFile = "main.mkv"
 fadeDur = 0.3
 sortByDate = False
-step = 30
 
+
+
+step = 30
 framesForImg = FPS * secondsForFrame
 displayQuality = (1280, 720)
 for m in get_monitors():
@@ -42,7 +43,7 @@ else:
 
 if len(data['size']) != 2:
   while True:
-    transform2res = input("Crop to resolution: (ex. 1920x1080) ").strip()
+    transform2res = input("Target resolution: (ex. 1920x1080) ").strip()
     if 'x' in transform2res:
       transform2res = transform2res.split('x')
       if len(transform2res) == 2:
@@ -306,5 +307,4 @@ for i in range(len(photos)):
   print("\rProcessed: {}/{}".format(i + 1, len(photos)), end="") 
 if len(photos) > 0: 
   print("\n> Done\nResult is saved to: ", outputFile)
-
-video.release()
+  video.release()
