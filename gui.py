@@ -1,25 +1,31 @@
 from PyQt6.QtWidgets import (
-    QApplication, QSizePolicy, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
+    QApplication, QScrollArea, QSlider, QSizePolicy, QLabel, QMenu, QDockWidget, QAbstractItemView, QListWidget, QMessageBox, QMenuBar, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
 )
-from PyQt6.QtGui import QPixmap, QPainter, QPen
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction
 from PyQt6.QtCore import Qt, QRect
 import sys
-
+import math
 
 class ImageWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.image = None
+        self.scaled_image = None
         self.rect = QRect(50, 50, 100, 100)
+        self.aspect_ratio = self.rect.width() / self.rect.height() if self.rect.height() != 0 else 1
         self.dragging = False
         self.drag_start_pos = None
         self.resizing = False
         self.possible_resize_edge = None
         self.setMouseTracking(True)
+        self.scale_factor = 1.0
         self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
+        self.prevMousePos = None
 
     def load_image(self, file_path):
+        self.scale_factor = 1.0
         self.image = QPixmap(file_path)
+        self.scaled_image = self.image
         if self.image:
             self.setMinimumSize(self.image.size())
         self.update()
@@ -27,17 +33,25 @@ class ImageWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         if self.image:
-            painter.drawPixmap(0, 0, self.image)
-        pen = QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.SolidLine)
-        pen.setDashPattern([3, 3])
-        painter.setPen(pen)
-        painter.drawRect(self.rect)
+            self.scaled_image = self.image.scaled(self.size() * self.scale_factor, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            painter.drawPixmap(0, 0, self.scaled_image)
 
+            pen = QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.SolidLine)
+            pen.setDashPattern([3, 3])
+            painter.setPen(pen)
+            painter.drawRect(self.rect)
+
+    def scale_image(self, scale_factor):
+        self.scale_factor *= scale_factor
+        self.rect.moveLeft(int(self.rect.left() * self.scale_factor))
+        self.rect.moveTop(int(self.rect.top() * self.scale_factor))
+        
+        self.update()
 
     def keyPressEvent(self, event):
         if self.image:
-            step = 10
-            if event.key() == Qt.Key.Key_W:  # Move up
+            step = int(10 / self.scale_factor)
+            if event.key() == Qt.Key.Key_W:    # Move up
                 self.rect.translate(0, -step)
             elif event.key() == Qt.Key.Key_S:  # Move down
                 self.rect.translate(0, step)
@@ -48,9 +62,33 @@ class ImageWidget(QWidget):
             self.move_clamp_rect()
             self.update()
 
+    def check_resize_clamp_rect(self, rect):
+        if self.scaled_image:
+            image_rect = self.scaled_image.rect()
+            if rect.left() < 0:
+                return True
+            if rect.top() < 0:
+                return True
+            if rect.right() > image_rect.width():
+                return True
+            if rect.bottom() > image_rect.height():
+                return True
+    
+            if rect.right() < 0:
+                return True
+            if rect.bottom() < 0:
+                return True
+
+            if rect.left() > image_rect.width():
+                return True
+            if rect.top() > image_rect.height():
+                return True
+        return False
+
+
     def resize_clamp_rect(self):
-        if self.image:
-            image_rect = self.image.rect()
+        if self.scaled_image:
+            image_rect = self.scaled_image.rect()
             if self.rect.left() < 0:
                 self.rect.setLeft(0)
             if self.rect.top() < 0:
@@ -59,18 +97,20 @@ class ImageWidget(QWidget):
                 self.rect.setRight(image_rect.width())
             if self.rect.bottom() > image_rect.height():
                 self.rect.setBottom(image_rect.height())
+    
             if self.rect.right() < 0:
                 self.rect.setRight(0)
             if self.rect.bottom() < 0:
                 self.rect.setBottom(0)
+
             if self.rect.left() > image_rect.width():
                 self.rect.setLeft(image_rect.width())
             if self.rect.top() > image_rect.height():
                 self.rect.setTop(image_rect.height())
 
     def move_clamp_rect(self):
-        if self.image:
-            image_rect = self.image.rect()
+        if self.scaled_image:
+            image_rect = self.scaled_image.rect()
             if self.rect.left() < 0:
                 self.rect.moveLeft(0)
             if self.rect.top() < 0:
@@ -107,6 +147,7 @@ class ImageWidget(QWidget):
             self.resize_rectangle(event.pos())
         else:
             self.detect_resize_edge(event.pos())
+        self.prevMousePos = event.pos()
         self.update()
 
     def mouseReleaseEvent(self, event):
@@ -137,59 +178,220 @@ class ImageWidget(QWidget):
         
     
     def resize_rectangle(self, pos):
+        deltaX = pos.x() - self.prevMousePos.x() if self.prevMousePos != None else 0 
+        deltaY = pos.y() - self.prevMousePos.y() if self.prevMousePos != None else 0
+        delta = int(math.sqrt(deltaX ** 2 + deltaY ** 2))
+
+        rect = QRect(self.rect)
         if self.possible_resize_edge == 'lt':
-            self.rect.setLeft(pos.x())
-            self.rect.setTop(pos.y())
+            rect.setLeft(pos.x())
+            rect.setTop(pos.y())
         elif self.possible_resize_edge == 'rb':
-            self.rect.setRight(pos.x())
-            self.rect.setBottom(pos.y())
+            rect.setRight(pos.x())
+            rect.setBottom(pos.y())
         elif self.possible_resize_edge == 'lb':
-            self.rect.setLeft(pos.x())
-            self.rect.setBottom(pos.y())
+            rect.setLeft(pos.x())
+            rect.setBottom(pos.y())
         elif self.possible_resize_edge == 'rt':
+            rect.setRight(pos.x())
+            rect.setTop(pos.y())
+        if self.check_resize_clamp_rect(rect):
+            return
+        if self.possible_resize_edge == 'lt':
+            new_width = self.rect.right() - pos.x()
+            new_height = int(new_width / self.aspect_ratio)
+            self.rect.setLeft(pos.x())
+            self.rect.setTop(self.rect.bottom() - new_height)
+        elif self.possible_resize_edge == 'rb':
+            new_width = pos.x() - self.rect.left()
+            new_height = int(new_width / self.aspect_ratio)
             self.rect.setRight(pos.x())
-            self.rect.setTop(pos.y())
-        
+            self.rect.setBottom(self.rect.top() + new_height)
+        elif self.possible_resize_edge == 'lb':
+            new_width = self.rect.right() - pos.x()
+            new_height = int(new_width / self.aspect_ratio)
+            self.rect.setLeft(pos.x())
+            self.rect.setBottom(self.rect.top() + new_height)
+        elif self.possible_resize_edge == 'rt':
+            new_width = pos.x() - self.rect.left()
+            new_height = int(new_width / self.aspect_ratio)
+            self.rect.setRight(pos.x())
+            self.rect.setTop(self.rect.bottom() - new_height)
+
         self.resize_clamp_rect()
 
+import time
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.setWindowTitle("Animator")
+        self.create_menu_bar()
 
+        # Central Widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        button_layout = QHBoxLayout()
-        load_button = QPushButton("Load Image")
-        load_button.clicked.connect(self.load_image)
-        button_layout.addWidget(load_button)
-
-        main_layout.addLayout(button_layout)
-
         self.image_widget = ImageWidget()
 
-        image_layout = QVBoxLayout()
-        image_layout.addStretch()
-        himage_layout = QHBoxLayout()
-        himage_layout.addStretch()
-        himage_layout.addWidget(self.image_widget)
-        himage_layout.addStretch()
-        image_layout.addLayout(himage_layout)
-        image_layout.addStretch()
-        main_layout.addLayout(image_layout)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setWidget(self.image_widget)
+        main_layout.addWidget(scroll_area)
+
+        # Bottom panel with slider and buttons
+        bottom_panel = QHBoxLayout()
+
+        zoom_out_button = QPushButton("-")
+        zoom_out_button.clicked.connect(lambda: self.image_widget.scale_image(0.9))
+        bottom_panel.addWidget(zoom_out_button)
+
+        self.zoom_slider = QSlider(Qt.Orientation.Horizontal)
+        self.zoom_slider.setMinimum(1)
+        self.zoom_slider.setMaximum(200)
+        self.zoom_slider.setValue(100)
+        self.zoom_slider.valueChanged.connect(self.slider_zoom)
+        bottom_panel.addWidget(self.zoom_slider)
+
+        zoom_in_button = QPushButton("+")
+        zoom_in_button.clicked.connect(lambda: self.image_widget.scale_image(1.1))
+        bottom_panel.addWidget(zoom_in_button)
+
+        main_layout.addLayout(bottom_panel)
 
         self.resize(800, 600)
         self.showMaximized()
 
-    def load_image(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Open Image File", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)"
-        )
+        self.create_sidebar()
+        self.image_path_list = []
+
+
+    def create_sidebar(self):
+        self.image_list_widget = QListWidget()
+        self.image_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.image_list_widget.itemClicked.connect(self.on_image_item_click)
+
+        sidebar_dock = QDockWidget("Loaded images", self)
+        sidebar_dock.setWidget(self.image_list_widget)
+        
+
+        title_widget = QWidget()
+        title_layout = QHBoxLayout(title_widget)
+        
+        title_layout.addWidget(QLabel("Loaded images"))
+
+        button = QPushButton("+") 
+
+        button.clicked.connect(self.import_images)
+        button.setFixedSize(35, 35)
+        title_layout.addStretch()   
+        title_layout.addWidget(button)  
+        
+        sidebar_dock.setTitleBarWidget(title_widget)
+
+        sidebar_dock.setAllowedAreas(Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea)
+        sidebar_dock.setFeatures(QDockWidget.DockWidgetFeature.NoDockWidgetFeatures)
+        self.addDockWidget(Qt.DockWidgetArea.LeftDockWidgetArea, sidebar_dock)
+
+
+    def slider_zoom(self, value):
+        scale_factor = value / 100
+        self.image_widget.scale_factor = scale_factor
+        self.image_widget.update()
+
+    def scale_image(self, scale_factor):
+        self.scale_factor *= scale_factor
+        self.update()
+
+    def on_image_item_click(self, item):
+        i = self.image_list_widget.row(item)
+        if i < len(self.image_path_list):
+            self.load_image(self.image_path_list[i])
+
+    def load_image(self, file_path=None):
+        if not file_path:
+            file_path, _ = QFileDialog.getOpenFileName(
+                self, "Open Image File", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)"
+            )
+        
         if file_path:
             self.image_widget.load_image(file_path)
+
+    def open_file(self):
+        QMessageBox.information(self, "Open File", "Open File action triggered")
+    
+    def create_menu_bar(self):
+        project_menu = self.menuBar().addMenu("Project")
+
+        new_action = QAction("New", self)
+        new_action.triggered.connect(self.new_project)
+        new_action.setShortcut('Ctrl+N')
+        project_menu.addAction(new_action)
+
+        open_action = QAction("Open", self)
+        open_action.triggered.connect(self.open_file)
+        open_action.setShortcut('Ctrl+O')
+        project_menu.addAction(open_action)
+
+        save_action = QAction("Save", self)
+        save_action.triggered.connect(self.open_file)
+        save_action.setShortcut('Ctrl+S')
+        project_menu.addAction(save_action)
+
+        project_menu.addSeparator()
+
+        exit_action = QAction("Exit", self)
+        exit_action.triggered.connect(self.close)
+        exit_action.setShortcut('Alt+F4')
+        project_menu.addAction(exit_action)
+
+        edit_menu = self.menuBar().addMenu("Edit")
+
+        undo_action = QAction("Undo", self)
+        undo_action.setShortcut('Ctrl+Z')
+        undo_action.triggered.connect(self.open_file)
+        edit_menu.addAction(undo_action)
+
+        redo_action = QAction("Redo", self)
+        redo_action.setShortcut('Ctrl+Y')
+        redo_action.triggered.connect(self.open_file)
+        edit_menu.addAction(redo_action)
+
+        data_menu = self.menuBar().addMenu("Data")
+        import_action = QAction("Import images", self)
+        import_action.setShortcut('Ctrl+I')
+        import_action.triggered.connect(self.import_images)
+        data_menu.addAction(import_action)
+
+        help_menu = self.menuBar().addMenu("About")
+
+        about_action = QAction("About", self)
+        help_menu.triggered.connect(self.open_file)
+
+    def new_project(self):
+        print("YEEES")   
+
+    
+    def import_images(self):
+        a = time.monotonic()
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Open Image File", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)"
+        )
+        b = time.monotonic()
+
+        if paths:
+            file_names = [f" {path.split('/')[-1]}" for path in paths]
+            c = time.monotonic()
+            self.image_path_list.extend(paths)
+
+            e = time.monotonic()
+            self.image_list_widget.addItems(file_names)
+            f = time.monotonic()
+
+        
+        print(b - a, c - b, e - c, f - e)
+                
 
     def keyPressEvent(self, event):
         self.image_widget.keyPressEvent(event)
