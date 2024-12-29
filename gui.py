@@ -1,8 +1,8 @@
 from PyQt6.QtWidgets import (
-    QApplication, QScrollArea, QSlider, QSizePolicy, QLabel, QMenu, QDockWidget, QAbstractItemView, QListWidget, QMessageBox, QMenuBar, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
+    QApplication, QButtonGroup, QScrollArea, QSlider, QSizePolicy, QLabel, QMenu, QDockWidget, QAbstractItemView, QListWidget, QMessageBox, QMenuBar, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
 )
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction
-from PyQt6.QtCore import Qt, QRect
+from PyQt6.QtCore import Qt, QRect, QRectF
 import sys
 import math
 
@@ -11,7 +11,7 @@ class ImageWidget(QWidget):
         super().__init__()
         self.image = None
         self.scaled_image = None
-        self.rect = QRect(50, 50, 100, 100)
+        self.rect = QRectF(50, 50, 160, 90)
         self.aspect_ratio = self.rect.width() / self.rect.height() if self.rect.height() != 0 else 1
         self.dragging = False
         self.drag_start_pos = None
@@ -21,14 +21,45 @@ class ImageWidget(QWidget):
         self.scale_factor = 1.0
         self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
         self.prevMousePos = None
+        self.pframes_info = None
+        self.img_loaded = False
 
-    def load_image(self, file_path):
+    def is_img_loaded(self):
+        return self.img_loaded
+    def load_image(self, file_path, frames_info):
+        self.img_loaded = True
+        self.pframes_info = frames_info
         self.scale_factor = 1.0
+        self.rect = QRectF(50, 50, 160, 90)
         self.image = QPixmap(file_path)
         self.scaled_image = self.image
         if self.image:
             self.setMinimumSize(self.image.size())
         self.update()
+        self.pframes_info["path"] = file_path
+        if "curr_frame" not in self.pframes_info:
+            self.pframes_info["curr_frame"] = 0
+        if "frames" not in self.pframes_info:
+            self.pframes_info["frames"] = [None, None]
+        
+        ok = True
+        for i in range(2):
+            if self.pframes_info["frames"][i] == None:
+                save = {}
+                save["scale"] = 1.0
+                save["rect_specs"] = [self.rect.left(), self.rect.bottom(), self.rect.right(), self.rect.top()]
+                self.pframes_info["frames"][i] = save
+        if ok:
+            self.switch_frame(self.pframes_info["curr_frame"])
+
+    def switch_frame(self, i):
+        self.pframes_info["curr_frame"] = i
+        data = self.pframes_info["frames"][self.pframes_info["curr_frame"]]
+        self.scale_factor = data["scale"]
+        self.rect.setLeft(data["rect_specs"][0])
+        self.rect.setBottom(data["rect_specs"][1])
+        self.rect.setRight(data["rect_specs"][2])
+        self.rect.setTop(data["rect_specs"][3])
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -43,6 +74,7 @@ class ImageWidget(QWidget):
 
     def scale_image(self, scale_factor):
         self.scale_factor *= scale_factor
+        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["scale"] = scale_factor
         self.rect.moveLeft(int(self.rect.left() * self.scale_factor))
         self.rect.moveTop(int(self.rect.top() * self.scale_factor))
         
@@ -127,20 +159,25 @@ class ImageWidget(QWidget):
                 self.rect.moveRight(0)
             if self.rect.bottom() < 0:
                 self.rect.moveBottom(0)
+            self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.rect.left(), self.rect.bottom(), self.rect.right(), self.rect.top()]
+
+    def set_scale_factor(self, scale):
+        self.scale_factor = scale
+        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["scale"] = scale
 
     def mousePressEvent(self, event):
         if self.detect_resize_edge(event.pos()):
             self.resizing = True
             return
 
-        if self.image and self.rect.contains(event.pos()):
+        if self.image and self.rect.contains(event.pos().x(), event.pos().y()):
             self.dragging = True
             self.drag_start_pos = event.pos()
 
     def mouseMoveEvent(self, event):
         if self.dragging:
             delta = event.pos() - self.drag_start_pos
-            self.rect.translate(delta)
+            self.rect.translate(delta.x(), delta.y())
             self.move_clamp_rect()
             self.drag_start_pos = event.pos()
         elif self.resizing:
@@ -180,47 +217,63 @@ class ImageWidget(QWidget):
     def resize_rectangle(self, pos):
         deltaX = pos.x() - self.prevMousePos.x() if self.prevMousePos != None else 0 
         deltaY = pos.y() - self.prevMousePos.y() if self.prevMousePos != None else 0
-        delta = int(math.sqrt(deltaX ** 2 + deltaY ** 2))
+        delta = math.sqrt(deltaX ** 2 + deltaY ** 2)
 
-        rect = QRect(self.rect)
-        if self.possible_resize_edge == 'lt':
-            rect.setLeft(pos.x())
-            rect.setTop(pos.y())
-        elif self.possible_resize_edge == 'rb':
-            rect.setRight(pos.x())
-            rect.setBottom(pos.y())
-        elif self.possible_resize_edge == 'lb':
-            rect.setLeft(pos.x())
-            rect.setBottom(pos.y())
-        elif self.possible_resize_edge == 'rt':
-            rect.setRight(pos.x())
-            rect.setTop(pos.y())
-        if self.check_resize_clamp_rect(rect):
-            return
+        rect = QRectF(self.rect)
         if self.possible_resize_edge == 'lt':
             new_width = self.rect.right() - pos.x()
-            new_height = int(new_width / self.aspect_ratio)
+            new_height = new_width / self.aspect_ratio
+            rect.setLeft(pos.x())
+            rect.setTop(self.rect.bottom() - new_height)
+        elif self.possible_resize_edge == 'rb':
+            new_width = pos.x() - self.rect.left()
+            new_height = new_width / self.aspect_ratio
+            rect.setRight(pos.x())
+            rect.setBottom(self.rect.top() + new_height)
+        elif self.possible_resize_edge == 'lb':
+            new_width = self.rect.right() - pos.x()
+            new_height = new_width / self.aspect_ratio
+            rect.setLeft(pos.x())
+            rect.setBottom(self.rect.top() + new_height)
+        elif self.possible_resize_edge == 'rt':
+            new_width = pos.x() - self.rect.left()
+            new_height = new_width / self.aspect_ratio
+            rect.setRight(pos.x())
+            rect.setTop(self.rect.bottom() - new_height)
+        if self.check_resize_clamp_rect(rect):
+            return
+
+        if rect.height() == 0 or (math.fabs(rect.width() / rect.height() - self.aspect_ratio) > 0.0000001):
+            return 
+
+        if self.possible_resize_edge == 'lt':
+            new_width = self.rect.right() - pos.x()
+            new_height = new_width / self.aspect_ratio
             self.rect.setLeft(pos.x())
             self.rect.setTop(self.rect.bottom() - new_height)
         elif self.possible_resize_edge == 'rb':
             new_width = pos.x() - self.rect.left()
-            new_height = int(new_width / self.aspect_ratio)
+            new_height = new_width / self.aspect_ratio
             self.rect.setRight(pos.x())
             self.rect.setBottom(self.rect.top() + new_height)
         elif self.possible_resize_edge == 'lb':
             new_width = self.rect.right() - pos.x()
-            new_height = int(new_width / self.aspect_ratio)
+            new_height = new_width / self.aspect_ratio
             self.rect.setLeft(pos.x())
             self.rect.setBottom(self.rect.top() + new_height)
         elif self.possible_resize_edge == 'rt':
             new_width = pos.x() - self.rect.left()
-            new_height = int(new_width / self.aspect_ratio)
+            new_height = new_width / self.aspect_ratio
             self.rect.setRight(pos.x())
             self.rect.setTop(self.rect.bottom() - new_height)
 
         self.resize_clamp_rect()
 
+        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.rect.left(), self.rect.bottom(), self.rect.right(), self.rect.top()]
+
+
 import time
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -231,7 +284,28 @@ class MainWindow(QMainWindow):
         # Central Widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
+        
+        control_layout = QHBoxLayout()
+        self.frame1_button = QPushButton("1")
+        self.frame1_button.setCheckable(True)
+        self.frame1_button.setChecked(True)
+        self.frame2_button = QPushButton("2")
+        self.frame2_button.setCheckable(True)
+
+        self.button_group = QButtonGroup(self)
+        self.button_group.setExclusive(True) 
+        self.button_group.addButton(self.frame1_button, 0)
+        self.button_group.addButton(self.frame2_button, 1)
+
+        self.button_group.idClicked.connect(self.frame_switched)
+        control_layout.addStretch()
+        control_layout.addWidget(self.frame1_button)
+        control_layout.addWidget(self.frame2_button)
+        control_layout.addStretch()
+
         main_layout = QVBoxLayout(central_widget)
+        main_layout.addLayout(control_layout)
+        
 
         self.image_widget = ImageWidget()
 
@@ -265,14 +339,20 @@ class MainWindow(QMainWindow):
 
         self.create_sidebar()
         self.image_path_list = []
+        self.frames_info = []
 
+
+    def frame_switched(self, id):
+        if self.image_widget and self.image_widget.is_img_loaded():
+            self.image_widget.switch_frame(id)
+            self.update()
 
     def create_sidebar(self):
         self.image_list_widget = QListWidget()
         self.image_list_widget.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.image_list_widget.itemClicked.connect(self.on_image_item_click)
 
-        sidebar_dock = QDockWidget("Loaded images", self)
+        sidebar_dock = QDockWidget("", self)
         sidebar_dock.setWidget(self.image_list_widget)
         
 
@@ -297,26 +377,31 @@ class MainWindow(QMainWindow):
 
     def slider_zoom(self, value):
         scale_factor = value / 100
-        self.image_widget.scale_factor = scale_factor
+        self.image_widget.set_scale_factor(scale_factor)
         self.image_widget.update()
 
-    def scale_image(self, scale_factor):
-        self.scale_factor *= scale_factor
-        self.update()
 
     def on_image_item_click(self, item):
         i = self.image_list_widget.row(item)
         if i < len(self.image_path_list):
-            self.load_image(self.image_path_list[i])
+            self.load_image(i)
 
-    def load_image(self, file_path=None):
-        if not file_path:
-            file_path, _ = QFileDialog.getOpenFileName(
-                self, "Open Image File", "", "Images (*.png *.xpm *.jpg *.jpeg *.bmp)"
-            )
+    def load_image(self, i):
+        print(self.frames_info)
+        path = self.image_path_list[i]
+    
+        if self.frames_info[i]:
+            fr_i = self.frames_info[i]["curr_frame"]
+            if fr_i != None:
+                if fr_i == 0:
+                    self.frame2_button.setChecked(False)
+                    self.frame1_button.setChecked(True)
+                else:
+                    self.frame1_button.setChecked(False)
+                    self.frame2_button.setChecked(True)
+
+        self.image_widget.load_image(path, self.frames_info[i])
         
-        if file_path:
-            self.image_widget.load_image(file_path)
 
     def open_file(self):
         QMessageBox.information(self, "Open File", "Open File action triggered")
@@ -384,8 +469,11 @@ class MainWindow(QMainWindow):
             file_names = [f" {path.split('/')[-1]}" for path in paths]
             c = time.monotonic()
             self.image_path_list.extend(paths)
+            for i in range(len(paths)):
+                self.frames_info.append({})
 
             e = time.monotonic()
+
             self.image_list_widget.addItems(file_names)
             f = time.monotonic()
 
