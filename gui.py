@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QScrollArea, QSlider, QSizePolicy, QLabel, QMenu, QDockWidget, QAbstractItemView, QListWidget, QMessageBox, QMenuBar, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
 )
-from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction, QColor
 from PyQt6.QtCore import Qt, QRect, QRectF
 import sys
 import math
@@ -11,8 +11,8 @@ class ImageWidget(QWidget):
         super().__init__()
         self.image = None
         self.scaled_image = None
-        self.rect = QRectF(50, 50, 160, 90)
-        self.aspect_ratio = self.rect.width() / self.rect.height() if self.rect.height() != 0 else 1
+        self.bound_rect = QRectF(50, 50, 160, 90)
+        self.aspect_ratio = self.bound_rect.width() / self.bound_rect.height() if self.bound_rect.height() != 0 else 1
         self.dragging = False
         self.drag_start_pos = None
         self.resizing = False
@@ -30,7 +30,7 @@ class ImageWidget(QWidget):
         self.img_loaded = True
         self.pframes_info = frames_info
         self.scale_factor = 1.0
-        self.rect = QRectF(50, 50, 160, 90)
+        self.bound_rect = QRectF(50, 50, 160, 90)
         self.image = QPixmap(file_path)
         self.scaled_image = self.image
         if self.image:
@@ -47,7 +47,7 @@ class ImageWidget(QWidget):
             if self.pframes_info["frames"][i] == None:
                 save = {}
                 save["scale"] = 1.0
-                save["rect_specs"] = [self.rect.left(), self.rect.bottom(), self.rect.right(), self.rect.top()]
+                save["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
                 self.pframes_info["frames"][i] = save
         if ok:
             self.switch_frame(self.pframes_info["curr_frame"])
@@ -56,27 +56,45 @@ class ImageWidget(QWidget):
         self.pframes_info["curr_frame"] = i
         data = self.pframes_info["frames"][self.pframes_info["curr_frame"]]
         self.scale_factor = data["scale"]
-        self.rect.setLeft(data["rect_specs"][0])
-        self.rect.setBottom(data["rect_specs"][1])
-        self.rect.setRight(data["rect_specs"][2])
-        self.rect.setTop(data["rect_specs"][3])
+        self.bound_rect.setLeft(data["rect_specs"][0])
+        self.bound_rect.setBottom(data["rect_specs"][1])
+        self.bound_rect.setRight(data["rect_specs"][2])
+        self.bound_rect.setTop(data["rect_specs"][3])
 
     def paintEvent(self, event):
         painter = QPainter(self)
+        
+        # Fill background with #171717 color
+        painter.fillRect(self.rect(), QColor("#171717"))
+        
         if self.image:
-            self.scaled_image = self.image.scaled(self.size() * self.scale_factor, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            painter.drawPixmap(0, 0, self.scaled_image)
-
+            # Calculate scaled image size
+            available_size = self.size() * self.scale_factor
+            self.scaled_image = self.image.scaled(
+                available_size, 
+                Qt.AspectRatioMode.KeepAspectRatio, 
+                Qt.TransformationMode.SmoothTransformation
+            )
+            
+            # Calculate the position to center the image
+            x = (self.width() - self.scaled_image.width()) / 2
+            y = (self.height() - self.scaled_image.height()) / 2
+            
+            # Draw the scaled pixmap
+            painter.drawPixmap(int(x), int(y), self.scaled_image)
+            
+            # Draw the red dashed rectangle
             pen = QPen(Qt.GlobalColor.red, 2, Qt.PenStyle.SolidLine)
             pen.setDashPattern([3, 3])
             painter.setPen(pen)
-            painter.drawRect(self.rect)
+            painter.drawRect(self.bound_rect)
+
 
     def scale_image(self, scale_factor):
         self.scale_factor *= scale_factor
         self.pframes_info["frames"][self.pframes_info["curr_frame"]]["scale"] = scale_factor
-        self.rect.moveLeft(int(self.rect.left() * self.scale_factor))
-        self.rect.moveTop(int(self.rect.top() * self.scale_factor))
+        self.bound_rect.moveLeft(int(self.bound_rect.left() * self.scale_factor))
+        self.bound_rect.moveTop(int(self.bound_rect.top() * self.scale_factor))
         
         self.update()
 
@@ -84,13 +102,13 @@ class ImageWidget(QWidget):
         if self.image:
             step = int(10 / self.scale_factor)
             if event.key() == Qt.Key.Key_W:    # Move up
-                self.rect.translate(0, -step)
+                self.bound_rect.translate(0, -step)
             elif event.key() == Qt.Key.Key_S:  # Move down
-                self.rect.translate(0, step)
+                self.bound_rect.translate(0, step)
             elif event.key() == Qt.Key.Key_A:  # Move left
-                self.rect.translate(-step, 0)
+                self.bound_rect.translate(-step, 0)
             elif event.key() == Qt.Key.Key_D:  # Move right
-                self.rect.translate(step, 0)
+                self.bound_rect.translate(step, 0)
             self.move_clamp_rect()
             self.update()
 
@@ -120,46 +138,46 @@ class ImageWidget(QWidget):
 
     def resize_clamp_rect(self):
         if self.scaled_image:
-            image_rect = self.scaled_image.rect()
-            if self.rect.left() < 0:
-                self.rect.setLeft(0)
-            if self.rect.top() < 0:
-                self.rect.setTop(0)
-            if self.rect.right() > image_rect.width():
-                self.rect.setRight(image_rect.width())
-            if self.rect.bottom() > image_rect.height():
-                self.rect.setBottom(image_rect.height())
+            image_rect = self.rect()
+            if self.bound_rect.left() < 0:
+                self.bound_rect.setLeft(0)
+            if self.bound_rect.top() < 0:
+                self.bound_rect.setTop(0)
+            if self.bound_rect.right() > image_rect.width():
+                self.bound_rect.setRight(image_rect.width())
+            if self.bound_rect.bottom() > image_rect.height():
+                self.bound_rect.setBottom(image_rect.height())
     
-            if self.rect.right() < 0:
-                self.rect.setRight(0)
-            if self.rect.bottom() < 0:
-                self.rect.setBottom(0)
+            if self.bound_rect.right() < 0:
+                self.bound_rect.setRight(0)
+            if self.bound_rect.bottom() < 0:
+                self.bound_rect.setBottom(0)
 
-            if self.rect.left() > image_rect.width():
-                self.rect.setLeft(image_rect.width())
-            if self.rect.top() > image_rect.height():
-                self.rect.setTop(image_rect.height())
+            if self.bound_rect.left() > image_rect.width():
+                self.bound_rect.setLeft(image_rect.width())
+            if self.bound_rect.top() > image_rect.height():
+                self.bound_rect.setTop(image_rect.height())
 
     def move_clamp_rect(self):
         if self.scaled_image:
-            image_rect = self.scaled_image.rect()
-            if self.rect.left() < 0:
-                self.rect.moveLeft(0)
-            if self.rect.top() < 0:
-                self.rect.moveTop(0)
-            if self.rect.right() > image_rect.width():
-                self.rect.moveRight(image_rect.width())
-            if self.rect.bottom() > image_rect.height():
-                self.rect.moveBottom(image_rect.height())
-            if self.rect.left() > image_rect.width():
-                self.rect.moveLeft(image_rect.width())
-            if self.rect.top() > image_rect.height():
-                self.rect.moveTop(image_rect.height())
-            if self.rect.right() < 0:
-                self.rect.moveRight(0)
-            if self.rect.bottom() < 0:
-                self.rect.moveBottom(0)
-            self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.rect.left(), self.rect.bottom(), self.rect.right(), self.rect.top()]
+            image_rect = self.rect()
+            if self.bound_rect.left() < 0:
+                self.bound_rect.moveLeft(0)
+            if self.bound_rect.top() < 0:
+                self.bound_rect.moveTop(0)
+            if self.bound_rect.right() > image_rect.width():
+                self.bound_rect.moveRight(image_rect.width())
+            if self.bound_rect.bottom() > image_rect.height():
+                self.bound_rect.moveBottom(image_rect.height())
+            if self.bound_rect.left() > image_rect.width():
+                self.bound_rect.moveLeft(image_rect.width())
+            if self.bound_rect.top() > image_rect.height():
+                self.bound_rect.moveTop(image_rect.height())
+            if self.bound_rect.right() < 0:
+                self.bound_rect.moveRight(0)
+            if self.bound_rect.bottom() < 0:
+                self.bound_rect.moveBottom(0)
+            self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
 
     def set_scale_factor(self, scale):
         self.scale_factor = scale
@@ -170,14 +188,14 @@ class ImageWidget(QWidget):
             self.resizing = True
             return
 
-        if self.image and self.rect.contains(event.pos().x(), event.pos().y()):
+        if self.image and self.bound_rect.contains(event.pos().x(), event.pos().y()):
             self.dragging = True
             self.drag_start_pos = event.pos()
 
     def mouseMoveEvent(self, event):
         if self.dragging:
             delta = event.pos() - self.drag_start_pos
-            self.rect.translate(delta.x(), delta.y())
+            self.bound_rect.translate(delta.x(), delta.y())
             self.move_clamp_rect()
             self.drag_start_pos = event.pos()
         elif self.resizing:
@@ -194,16 +212,16 @@ class ImageWidget(QWidget):
 
     def detect_resize_edge(self, pos):
         margin = 5
-        if abs(self.rect.left() - pos.x()) <= margin and abs(self.rect.top() - pos.y()) <= margin:
+        if abs(self.bound_rect.left() - pos.x()) <= margin and abs(self.bound_rect.top() - pos.y()) <= margin:
             self.possible_resize_edge = 'lt'
             self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        elif abs(self.rect.right() - pos.x()) <= margin and abs(self.rect.bottom() - pos.y()) <= margin:
+        elif abs(self.bound_rect.right() - pos.x()) <= margin and abs(self.bound_rect.bottom() - pos.y()) <= margin:
             self.possible_resize_edge = 'rb'
             self.setCursor(Qt.CursorShape.SizeFDiagCursor)
-        elif abs(self.rect.left() - pos.x()) <= margin and abs(self.rect.bottom() - pos.y()) <= margin:
+        elif abs(self.bound_rect.left() - pos.x()) <= margin and abs(self.bound_rect.bottom() - pos.y()) <= margin:
             self.possible_resize_edge = 'lb'
             self.setCursor(Qt.CursorShape.SizeBDiagCursor)
-        elif abs(self.rect.right() - pos.x()) <= margin and abs(self.rect.top() - pos.y()) <= margin:
+        elif abs(self.bound_rect.right() - pos.x()) <= margin and abs(self.bound_rect.top() - pos.y()) <= margin:
             self.possible_resize_edge = 'rt'
             self.setCursor(Qt.CursorShape.SizeBDiagCursor)
         else:
@@ -219,27 +237,27 @@ class ImageWidget(QWidget):
         deltaY = pos.y() - self.prevMousePos.y() if self.prevMousePos != None else 0
         delta = math.sqrt(deltaX ** 2 + deltaY ** 2)
 
-        rect = QRectF(self.rect)
+        rect = QRectF(self.bound_rect)
         if self.possible_resize_edge == 'lt':
-            new_width = self.rect.right() - pos.x()
+            new_width = self.bound_rect.right() - pos.x()
             new_height = new_width / self.aspect_ratio
             rect.setLeft(pos.x())
-            rect.setTop(self.rect.bottom() - new_height)
+            rect.setTop(self.bound_rect.bottom() - new_height)
         elif self.possible_resize_edge == 'rb':
-            new_width = pos.x() - self.rect.left()
+            new_width = pos.x() - self.bound_rect.left()
             new_height = new_width / self.aspect_ratio
             rect.setRight(pos.x())
-            rect.setBottom(self.rect.top() + new_height)
+            rect.setBottom(self.bound_rect.top() + new_height)
         elif self.possible_resize_edge == 'lb':
-            new_width = self.rect.right() - pos.x()
+            new_width = self.bound_rect.right() - pos.x()
             new_height = new_width / self.aspect_ratio
             rect.setLeft(pos.x())
-            rect.setBottom(self.rect.top() + new_height)
+            rect.setBottom(self.bound_rect.top() + new_height)
         elif self.possible_resize_edge == 'rt':
-            new_width = pos.x() - self.rect.left()
+            new_width = pos.x() - self.bound_rect.left()
             new_height = new_width / self.aspect_ratio
             rect.setRight(pos.x())
-            rect.setTop(self.rect.bottom() - new_height)
+            rect.setTop(self.bound_rect.bottom() - new_height)
         if self.check_resize_clamp_rect(rect):
             return
 
@@ -247,29 +265,29 @@ class ImageWidget(QWidget):
             return 
 
         if self.possible_resize_edge == 'lt':
-            new_width = self.rect.right() - pos.x()
+            new_width = self.bound_rect.right() - pos.x()
             new_height = new_width / self.aspect_ratio
-            self.rect.setLeft(pos.x())
-            self.rect.setTop(self.rect.bottom() - new_height)
+            self.bound_rect.setLeft(pos.x())
+            self.bound_rect.setTop(self.bound_rect.bottom() - new_height)
         elif self.possible_resize_edge == 'rb':
-            new_width = pos.x() - self.rect.left()
+            new_width = pos.x() - self.bound_rect.left()
             new_height = new_width / self.aspect_ratio
-            self.rect.setRight(pos.x())
-            self.rect.setBottom(self.rect.top() + new_height)
+            self.bound_rect.setRight(pos.x())
+            self.bound_rect.setBottom(self.bound_rect.top() + new_height)
         elif self.possible_resize_edge == 'lb':
-            new_width = self.rect.right() - pos.x()
+            new_width = self.bound_rect.right() - pos.x()
             new_height = new_width / self.aspect_ratio
-            self.rect.setLeft(pos.x())
-            self.rect.setBottom(self.rect.top() + new_height)
+            self.bound_rect.setLeft(pos.x())
+            self.bound_rect.setBottom(self.bound_rect.top() + new_height)
         elif self.possible_resize_edge == 'rt':
-            new_width = pos.x() - self.rect.left()
+            new_width = pos.x() - self.bound_rect.left()
             new_height = new_width / self.aspect_ratio
-            self.rect.setRight(pos.x())
-            self.rect.setTop(self.rect.bottom() - new_height)
+            self.bound_rect.setRight(pos.x())
+            self.bound_rect.setTop(self.bound_rect.bottom() - new_height)
 
         self.resize_clamp_rect()
 
-        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.rect.left(), self.rect.bottom(), self.rect.right(), self.rect.top()]
+        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
 
 
 import time
@@ -477,9 +495,6 @@ class MainWindow(QMainWindow):
             self.image_list_widget.addItems(file_names)
             f = time.monotonic()
 
-        
-        print(b - a, c - b, e - c, f - e)
-                
 
     def keyPressEvent(self, event):
         self.image_widget.keyPressEvent(event)
