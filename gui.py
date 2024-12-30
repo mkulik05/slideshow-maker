@@ -1,14 +1,16 @@
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QScrollArea, QSlider, QSizePolicy, QLabel, QMenu, QDockWidget, QAbstractItemView, QListWidget, QMessageBox, QMenuBar, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
 )
-from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction, QColor
+from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction, QColor, QImage
 from PyQt6.QtCore import Qt, QRect, QRectF
 import sys
 import math
+import cv2
+import numpy as np
 
 class ImageWidget(QWidget):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, parent):
+        super().__init__(parent)
         self.image = None
         self.scaled_image = None
         self.bound_rect = QRectF(50, 50, 160, 90)
@@ -26,6 +28,14 @@ class ImageWidget(QWidget):
 
     def is_img_loaded(self):
         return self.img_loaded
+    
+    def resizeEvent(self, event):
+        if self.pframes_info:
+            current_frame = self.pframes_info.get("curr_frame", 0)
+            frame_data = self.pframes_info["frames"][current_frame]
+            frame_data["pixmap_size"] = [self.rect().width(), self.rect().height()]
+
+        super().resizeEvent(event)
     def load_image(self, file_path, frames_info):
         self.img_loaded = True
         self.pframes_info = frames_info
@@ -45,8 +55,10 @@ class ImageWidget(QWidget):
         ok = True
         for i in range(2):
             if self.pframes_info["frames"][i] == None:
+                ok = False
                 save = {}
                 save["scale"] = 1.0
+                save["pixmap_size"] = [self.rect().width(), self.rect().height()]
                 save["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
                 self.pframes_info["frames"][i] = save
         if ok:
@@ -64,7 +76,6 @@ class ImageWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         
-        # Fill background with #171717 color
         painter.fillRect(self.rect(), QColor("#171717"))
         
         if self.image:
@@ -91,11 +102,38 @@ class ImageWidget(QWidget):
 
 
     def scale_image(self, scale_factor):
-        self.scale_factor *= scale_factor
-        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["scale"] = scale_factor
+        center_x = self.rect().center().x()
+        center_y = self.rect().center().y()
+
+        if self.scale_factor * scale_factor > 2 or self.scale_factor * scale_factor < 0.2:
+            return
+        self.set_scale_factor(self.scale_factor * scale_factor)
         self.bound_rect.moveLeft(int(self.bound_rect.left() * self.scale_factor))
         self.bound_rect.moveTop(int(self.bound_rect.top() * self.scale_factor))
-        
+        if self.scaled_image:
+            new_width = self.scaled_image.width() * self.scale_factor
+            new_height = self.scaled_image.height() * self.scale_factor
+            self.setMinimumSize(int(new_width), int(new_height))
+            self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
+        if self.parent():
+            scroll_area = self.parent().findChild(QScrollArea)
+            if scroll_area:
+                horizontal_scrollbar = scroll_area.horizontalScrollBar()
+                vertical_scrollbar = scroll_area.verticalScrollBar()
+
+                # Get the current center position of the image
+                current_center_x = scroll_area.horizontalScrollBar().value() + (scroll_area.width() / 2)
+                current_center_y = scroll_area.verticalScrollBar().value() + (scroll_area.height() / 2)
+
+                # Calculate new positions based on the scale factor
+                new_center_x = current_center_x * scale_factor
+                new_center_y = current_center_y * scale_factor
+
+                # Set the new scroll bar values to maintain the center position
+                horizontal_scrollbar.setValue(new_center_x - (scroll_area.width() / 2))
+                vertical_scrollbar.setValue(new_center_y - (scroll_area.height() / 2))
+        else:
+            print("Nah")
         self.update()
 
     def keyPressEvent(self, event):
@@ -114,7 +152,7 @@ class ImageWidget(QWidget):
 
     def check_resize_clamp_rect(self, rect):
         if self.scaled_image:
-            image_rect = self.scaled_image.rect()
+            image_rect = self.rect()
             if rect.left() < 0:
                 return True
             if rect.top() < 0:
@@ -291,10 +329,12 @@ class ImageWidget(QWidget):
 
 
 import time
-
+from animation import animate_preview
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
+
+        self.currSelectedImgI = None
 
         self.setWindowTitle("Animator")
         self.create_menu_bar()
@@ -325,9 +365,10 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(control_layout)
         
 
-        self.image_widget = ImageWidget()
+        
 
         scroll_area = QScrollArea()
+        self.image_widget = ImageWidget(scroll_area)
         scroll_area.setWidgetResizable(True)
         scroll_area.setWidget(self.image_widget)
         main_layout.addWidget(scroll_area)
@@ -407,8 +448,9 @@ class MainWindow(QMainWindow):
     def load_image(self, i):
         print(self.frames_info)
         path = self.image_path_list[i]
-    
+        self.currSelectedImgI = i
         if self.frames_info[i]:
+
             fr_i = self.frames_info[i]["curr_frame"]
             if fr_i != None:
                 if fr_i == 0:
@@ -422,7 +464,8 @@ class MainWindow(QMainWindow):
         
 
     def open_file(self):
-        QMessageBox.information(self, "Open File", "Open File action triggered")
+        print(1)
+        
     
     def create_menu_bar(self):
         project_menu = self.menuBar().addMenu("Project")
@@ -497,6 +540,13 @@ class MainWindow(QMainWindow):
 
 
     def keyPressEvent(self, event):
+        if event.key() == Qt.Key.Key_Space:
+            print("Space pressed")
+            if self.currSelectedImgI == None:
+                print(" - No image")
+                return
+            animate_preview(self.frames_info[self.currSelectedImgI], self.image_path_list[self.currSelectedImgI])
+            print(" - Finished animation")
         self.image_widget.keyPressEvent(event)
 
 
