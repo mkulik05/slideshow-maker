@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import (
     QApplication, QButtonGroup, QScrollArea, QSlider, QSizePolicy, QLabel, QMenu, QDockWidget, QAbstractItemView, QListWidget, QMessageBox, QMenuBar, QMainWindow, QSizePolicy, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QFileDialog
 )
+import json
 from PyQt6.QtGui import QPixmap, QPainter, QPen, QAction, QColor, QImage
 from PyQt6.QtCore import Qt, QRect, QRectF
 import sys
@@ -8,9 +9,14 @@ import math
 import cv2
 import numpy as np
 import copy
+import hashlib
+
+def calculate_hash(data):
+    json_string = json.dumps(data, sort_keys=True) 
+    return hashlib.md5(json_string.encode()).hexdigest()
 
 class ImageWidget(QWidget):
-    def __init__(self, parent):
+    def __init__(self, parent, change_clb):
         super().__init__(parent)
         self.image = None
         self.scaled_image = None
@@ -25,7 +31,8 @@ class ImageWidget(QWidget):
         self.setSizePolicy(QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.MinimumExpanding)
         self.prevMousePos = None
         self.pframes_info = None
-        self.img_loaded = False
+        self.img_loaded = False   
+        self.change_clb = change_clb     
 
     def is_img_loaded(self):
         return self.img_loaded
@@ -36,6 +43,7 @@ class ImageWidget(QWidget):
             self.pframes_info["frames"][current_frame]["updated"] = True
             frame_data = self.pframes_info["frames"][current_frame]
             frame_data["pixmap_size"] = [self.rect().width(), self.rect().height()]
+            self.change_clb()
         super().resizeEvent(event)
 
     def load_image(self, file_path, frames_info):
@@ -70,6 +78,7 @@ class ImageWidget(QWidget):
     def switch_frame(self, i):
         if i == 1 and not self.pframes_info["frames"][1]["updated"]:
             self.pframes_info["frames"][1] = copy.deepcopy(self.pframes_info["frames"][0])
+            self.change_clb()
         self.pframes_info["curr_frame"] = i
         data = self.pframes_info["frames"][self.pframes_info["curr_frame"]]
         self.scale_factor = data["scale"]
@@ -121,6 +130,7 @@ class ImageWidget(QWidget):
             self.setMinimumSize(int(new_width), int(new_height))
             self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
             self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
+            self.change_clb()
         if self.parent():
             scroll_area = self.parent().findChild(QScrollArea)
             if scroll_area:
@@ -224,10 +234,13 @@ class ImageWidget(QWidget):
             self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
             self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
 
+            self.change_clb()
+
     def set_scale_factor(self, scale):
         self.scale_factor = scale
         self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
         self.pframes_info["frames"][self.pframes_info["curr_frame"]]["scale"] = scale
+        self.change_clb()
 
     def mousePressEvent(self, event):
         if self.detect_resize_edge(event.pos()):
@@ -255,6 +268,7 @@ class ImageWidget(QWidget):
         self.dragging = False
         self.resizing = False
         self.possible_resize_edge = None
+        self.change_clb()
 
     def detect_resize_edge(self, pos):
         margin = 5
@@ -339,13 +353,14 @@ class ImageWidget(QWidget):
 
 import time
 from animation import animate_preview
+
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
 
         self.currSelectedImgI = None
 
-        self.setWindowTitle("Animator")
+        self.setWindowTitle("Animator - Unsaved *")
         self.create_menu_bar()
 
         # Central Widget
@@ -365,6 +380,8 @@ class MainWindow(QMainWindow):
         self.button_group.addButton(self.frame2_button, 1)
 
         self.button_group.idClicked.connect(self.frame_switched)
+        self.changedTitle2Unsaved = False
+        self.autosave = False
         control_layout.addStretch()
         control_layout.addWidget(self.frame1_button)
         control_layout.addWidget(self.frame2_button)
@@ -374,13 +391,12 @@ class MainWindow(QMainWindow):
         main_layout.addLayout(control_layout)
         
 
-        
-
-        scroll_area = QScrollArea()
-        self.image_widget = ImageWidget(scroll_area)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setWidget(self.image_widget)
-        main_layout.addWidget(scroll_area)
+    
+        self.scroll_area = QScrollArea()
+        self.image_widget = ImageWidget(self.scroll_area, lambda: self.project_modified())
+        self.scroll_area.setWidgetResizable(True)
+        self.scroll_area.setWidget(self.image_widget)
+        main_layout.addWidget(self.scroll_area)
 
         # Bottom panel with slider and buttons
         bottom_panel = QHBoxLayout()
@@ -408,6 +424,17 @@ class MainWindow(QMainWindow):
         self.create_sidebar()
         self.image_path_list = []
         self.frames_info = []
+        self.assosiatedFilePath = None
+        self.project_name = None
+
+    def project_modified(self):
+        if self.autosave:
+            self.save_file()
+            return
+        if not self.changedTitle2Unsaved:
+            self.changedTitle2Unsaved = True
+            self.setWindowTitle("Animator - " + (self.project_name or "Unsaved") + " *")
+            
 
 
     def frame_switched(self, id):
@@ -455,7 +482,7 @@ class MainWindow(QMainWindow):
             self.load_image(i)
 
     def load_image(self, i):
-        print(self.frames_info)
+        print(self.frames_info, i)
         path = self.image_path_list[i]
         self.currSelectedImgI = i
         if self.frames_info[i]:
@@ -473,7 +500,31 @@ class MainWindow(QMainWindow):
         
 
     def open_file(self):
-        print(1)
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open project", "", "Project (*.project)"
+        )
+        if path:
+            with open(path, "r") as file:
+                loaded = json.load(file)
+            saved_hash = loaded.get("hash")
+            del loaded["hash"]
+            recalculated_hash = calculate_hash(loaded)
+            if saved_hash != recalculated_hash:
+                print("Involid cache")
+                return
+            
+            self.image_widget.scaled_image = None
+            self.image_widget.image = None
+            self.frames_info = loaded["frames"]
+            self.image_path_list = loaded["img_paths"]
+            self.image_list_widget.clear()
+            for i in range(len(self.image_path_list)):
+                self.image_list_widget.addItem(self.image_path_list[i].split('/')[-1])
+            
+            self.assosiatedFilePath = path
+            self.project_name = self.assosiatedFilePath.split('/')[-1]
+            self.changedTitle2Unsaved = False
+            self.setWindowTitle("Animator - " + self.project_name)
         
     
     def create_menu_bar(self):
@@ -490,9 +541,17 @@ class MainWindow(QMainWindow):
         project_menu.addAction(open_action)
 
         save_action = QAction("Save", self)
-        save_action.triggered.connect(self.open_file)
+        save_action.triggered.connect(self.save_file)
         save_action.setShortcut('Ctrl+S')
         project_menu.addAction(save_action)
+
+        project_menu.addSeparator()
+
+        autosave_action = QAction("Autosave", self)
+        autosave_action.setCheckable(True)  
+        autosave_action.setChecked(False)  
+        autosave_action.toggled.connect(self.toggle_autosave)  
+        project_menu.addAction(autosave_action)
 
         project_menu.addSeparator()
 
@@ -524,10 +583,44 @@ class MainWindow(QMainWindow):
         about_action = QAction("About", self)
         help_menu.triggered.connect(self.open_file)
 
+    
+
+    def save_file(self):
+        if self.assosiatedFilePath == None:
+            file_path, _ = QFileDialog.getSaveFileName(
+                self, 
+                "Save Project File",                # Dialog title
+                "",                                 # Default directory
+                "Project Files (*.project)",       # File filter
+            )
+        
+            if file_path:  
+                if not file_path.endswith('.project'):  
+                    file_path += '.project'
+                self.assosiatedFilePath = file_path
+            else:
+                return
+
+        data = {}
+        data["img_paths"] = self.image_path_list
+        data["frames"] = self.frames_info
+        hash_value = calculate_hash(data) 
+        data["hash"] = hash_value       
+
+        with open(self.assosiatedFilePath, "w") as file:
+            json.dump(data, file, indent=4)
+
+        self.project_name = self.assosiatedFilePath.split('/')[-1]
+        self.changedTitle2Unsaved = False
+        self.setWindowTitle("Animator - " + self.project_name)
+
     def new_project(self):
         print("YEEES")   
 
-    
+    def toggle_autosave(self, checked):
+        self.autosave = checked
+        self.save_file()
+
     def import_images(self):
         a = time.monotonic()
         paths, _ = QFileDialog.getOpenFileNames(
