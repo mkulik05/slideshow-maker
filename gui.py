@@ -381,6 +381,7 @@ class MainWindow(QMainWindow):
 
         self.button_group.idClicked.connect(self.frame_switched)
         self.changedTitle2Unsaved = False
+        self.project_saved = True
         self.autosave = False
         control_layout.addStretch()
         control_layout.addWidget(self.frame1_button)
@@ -431,6 +432,7 @@ class MainWindow(QMainWindow):
         if self.autosave:
             self.save_file()
             return
+        self.project_saved = False
         if not self.changedTitle2Unsaved:
             self.changedTitle2Unsaved = True
             self.setWindowTitle("Animator - " + (self.project_name or "Unsaved") + " *")
@@ -613,6 +615,7 @@ class MainWindow(QMainWindow):
         self.project_name = self.assosiatedFilePath.split('/')[-1]
         self.changedTitle2Unsaved = False
         self.setWindowTitle("Animator - " + self.project_name)
+        self.project_saved = True
 
     def new_project(self):
         print("YEEES")   
@@ -639,6 +642,8 @@ class MainWindow(QMainWindow):
 
             self.image_list_widget.addItems(file_names)
             f = time.monotonic()
+            
+            self.project_modified()
 
 
     def keyPressEvent(self, event):
@@ -650,6 +655,25 @@ class MainWindow(QMainWindow):
             animate_preview(self.frames_info[self.currSelectedImgI], self.image_path_list[self.currSelectedImgI])
             print(" - Finished animation")
         self.image_widget.keyPressEvent(event)
+    
+    def closeEvent(self, event):
+        if not self.project_saved:
+            reply = QMessageBox.question(
+                self,
+                "Save project?",
+                "You have unsaved changes. Do you want to save them?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.Yes,
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                self.save_file()
+                event.accept()
+            elif reply == QMessageBox.StandardButton.No:
+                event.accept()
+            else:
+                event.ignore()
+        else:
+            event.accept()
 
 
 
