@@ -7,6 +7,7 @@ import sys
 import math
 import cv2
 import numpy as np
+import copy
 
 class ImageWidget(QWidget):
     def __init__(self, parent):
@@ -32,10 +33,11 @@ class ImageWidget(QWidget):
     def resizeEvent(self, event):
         if self.pframes_info:
             current_frame = self.pframes_info.get("curr_frame", 0)
+            self.pframes_info["frames"][current_frame]["updated"] = True
             frame_data = self.pframes_info["frames"][current_frame]
             frame_data["pixmap_size"] = [self.rect().width(), self.rect().height()]
-
         super().resizeEvent(event)
+
     def load_image(self, file_path, frames_info):
         self.img_loaded = True
         self.pframes_info = frames_info
@@ -57,6 +59,7 @@ class ImageWidget(QWidget):
             if self.pframes_info["frames"][i] == None:
                 ok = False
                 save = {}
+                save["updated"] = False
                 save["scale"] = 1.0
                 save["pixmap_size"] = [self.rect().width(), self.rect().height()]
                 save["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
@@ -65,6 +68,8 @@ class ImageWidget(QWidget):
             self.switch_frame(self.pframes_info["curr_frame"])
 
     def switch_frame(self, i):
+        if i == 1 and not self.pframes_info["frames"][1]["updated"]:
+            self.pframes_info["frames"][1] = copy.deepcopy(self.pframes_info["frames"][0])
         self.pframes_info["curr_frame"] = i
         data = self.pframes_info["frames"][self.pframes_info["curr_frame"]]
         self.scale_factor = data["scale"]
@@ -114,6 +119,7 @@ class ImageWidget(QWidget):
             new_width = self.scaled_image.width() * self.scale_factor
             new_height = self.scaled_image.height() * self.scale_factor
             self.setMinimumSize(int(new_width), int(new_height))
+            self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
             self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
         if self.parent():
             scroll_area = self.parent().findChild(QScrollArea)
@@ -215,10 +221,12 @@ class ImageWidget(QWidget):
                 self.bound_rect.moveRight(0)
             if self.bound_rect.bottom() < 0:
                 self.bound_rect.moveBottom(0)
+            self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
             self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
 
     def set_scale_factor(self, scale):
         self.scale_factor = scale
+        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
         self.pframes_info["frames"][self.pframes_info["curr_frame"]]["scale"] = scale
 
     def mousePressEvent(self, event):
@@ -325,6 +333,7 @@ class ImageWidget(QWidget):
 
         self.resize_clamp_rect()
 
+        self.pframes_info["frames"][self.pframes_info["curr_frame"]]["updated"] = True
         self.pframes_info["frames"][self.pframes_info["curr_frame"]]["rect_specs"] = [self.bound_rect.left(), self.bound_rect.bottom(), self.bound_rect.right(), self.bound_rect.top()]
 
 

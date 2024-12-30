@@ -19,18 +19,16 @@ def normalize_coords(coords):
 		new_coords[3] = b
 	return new_coords
 
-
-# Add black backgroung to image
+# TODO fix bug
 def addBlackBkg(sourceImg, size):
-    res = np.zeros((size[1], size[0], 3), dtype=np.uint8)
-    yS, xS = sourceImg.shape[:2]
-    dX = (size[0] - xS) // 2
-    dY = (size[1] - yS) // 2
-    shiftX = 1 if (size[0] - xS) % 2 != 0 else 0
-    shiftY = 1 if (size[1] - yS) % 2 != 0 else 0
-    res[dY : size[1] - dY - shiftY, dX : size[0] - dX - shiftX] = sourceImg
-    return res
-
+	res = np.zeros((size[1], size[0], 3), dtype=np.uint8)
+	yS, xS = sourceImg.shape[:2]
+	dX = (size[0] - xS) // 2
+	dY = (size[1] - yS) // 2
+	shiftX = 1 if (size[0] - xS) % 2 != 0 else 0
+	shiftY = 1 if (size[1] - yS) % 2 != 0 else 0
+	res[dY : size[1] - dY - shiftY, dX : size[0] - dX - shiftX] = sourceImg
+	return res
 
 def rescale(img, scale_percent):
     width = int(img.shape[1] * scale_percent / 100)
@@ -38,6 +36,17 @@ def rescale(img, scale_percent):
     dim = (width, height)
     resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
     return resized
+
+def scale_rect_based_on_center(rect, scale_factor, center):
+    cx, cy = center
+    l, b, r, t = rect
+
+    new_l = cx + (l - cx) * scale_factor
+    new_r = cx + (r - cx) * scale_factor
+    new_b = cy + (b - cy) * scale_factor
+    new_t = cy + (t - cy) * scale_factor
+
+    return np.array([new_l, new_b, new_r, new_t])
 
 def animate_preview(frames_info, img_path):
 	try:
@@ -55,11 +64,22 @@ def animate_preview(frames_info, img_path):
 	frame2 = frames_info["frames"][1]
 	rect1 = np.array(normalize_coords(frame1["rect_specs"]))
 	rect2 = np.array(normalize_coords(frame2["rect_specs"]))
+
+	print(frame1, frame2)
+	print(rect1, rect2)
+	print(frame1["pixmap_size"])
+	print(img.shape)
+	print(fps * secondsForFrame)
+
 	if frame1["scale"] >= frame2["scale"]:
-		rect2 = rect2 / frame2["scale"] * frame1["scale"]
+		scale_factor = frame1["scale"] / frame2["scale"]
+		center = ((rect2[0] + rect2[2]) / 2, (rect2[1] + rect2[3]) / 2)
+		rect2 = scale_rect_based_on_center(rect2, scale_factor, center)
 		frame2["scale"] = frame1["scale"]
 	else:
-		rect1 = rect1 / frame1["scale"] * frame2["scale"]
+		scale_factor = frame2["scale"] / frame1["scale"]
+		center = ((rect1[0] + rect1[2]) / 2, (rect1[1] + rect1[3]) / 2)
+		rect1 = scale_rect_based_on_center(rect1, scale_factor, center)
 		frame1["scale"] = frame2["scale"]
 	
 	img = rescale(img, frame1["scale"] * 100)
@@ -106,10 +126,13 @@ def animate_preview(frames_info, img_path):
 				cv2.destroyWindow("Preview")
 			except:
 				print(1)
-			return
+			return k
 
 	k = cv2.waitKey()
-	cv2.destroyWindow("Preview")
+	try:
+		cv2.destroyWindow("Preview")
+	except:
+		print(1)
 	return k
 
 def changeBrightness(img, br):
