@@ -48,28 +48,12 @@ def scale_rect_based_on_center(rect, scale_factor, center):
 
     return np.array([new_l, new_b, new_r, new_t])
 
-def animate_preview(frames_info, img_path):
-	try:
-		cv2.destroyWindow("Preview")
-	except:
-		print(1)
-
-	fps = 30
-	displayQuality = [960, 540] 
-	secondsForFrame = 5
-	
-	img = cv2.imread(img_path)
+def normalize_frames(frames_info, img):
 	
 	frame1 = frames_info["frames"][0]
 	frame2 = frames_info["frames"][1]
 	rect1 = np.array(normalize_coords(frame1["rect_specs"]))
 	rect2 = np.array(normalize_coords(frame2["rect_specs"]))
-
-	print(frame1, frame2)
-	print(rect1, rect2)
-	print(frame1["pixmap_size"])
-	print(img.shape)
-	print(fps * secondsForFrame)
 
 	if frame1["scale"] >= frame2["scale"]:
 		scale_factor = frame1["scale"] / frame2["scale"]
@@ -84,23 +68,24 @@ def animate_preview(frames_info, img_path):
 	
 	img = rescale(img, frame1["scale"] * 100)
 
-	print(frame1, frame2)
-	print(rect1, rect2)
-	print(frame1["pixmap_size"])
-	print(img.shape)
-	print(fps * secondsForFrame)
 	img = addBlackBkg(img, [frame1["pixmap_size"][0], frame1["pixmap_size"][1]])
+	return rect1, rect2, img
 
-	# if frame1["pixmap_size"][0] >= frame2["pixmap_size"][0]:
-	# 	delta = frame1["pixmap_size"][0] - frame2["pixmap_size"][0]
-	# 	rect2 += int(delta / 2)
-	# 	frame2["pixmap_size"][0] = frame1["pixmap_size"][0]
-	# else:
-	# 	delta = frame2["pixmap_size"][0] - frame1["pixmap_size"][0]
-	# 	rect1 += int(delta / 2)
-	# 	frame1["pixmap_size"][0] = frame2["pixmap_size"][0]
 
-	# l, b, r, t = coords
+def animate_preview(frames_info, img_path):
+	fps = 30
+	displayQuality = [960, 540] 
+	secondsForFrame = 5
+
+	img = cv2.imread(img_path)
+
+	rect1, rect2, img = normalize_frames(frames_info, img)
+	
+	try:
+		cv2.destroyWindow("Preview")
+	except:
+		print(1)
+
 	for i in range(fps * secondsForFrame):
 		x1 = int(getPoint(i, rect1[0], rect2[0], fps * secondsForFrame))
 		y1 = int(getPoint(i, rect1[1], rect2[1], fps * secondsForFrame))
@@ -108,11 +93,7 @@ def animate_preview(frames_info, img_path):
 		y2 = int(getPoint(i, rect1[3], rect2[3], fps * secondsForFrame))
 		
 		x1, y1, x2, y2 = normalize_coords([x1, y1, x2, y2])
-		print(x1, x2, y1, y2)		
-		print(rect1[0], rect2[0])
-		print(rect1[1], rect2[1])
-		print(rect1[2], rect2[2])
-		print(rect1[3], rect2[3])
+
 		cv2.imshow(
 			"Preview",
 			cv2.resize(
@@ -137,3 +118,25 @@ def animate_preview(frames_info, img_path):
 
 def changeBrightness(img, br):
     return np.round(img * (br / 100)).astype(np.uint8)
+
+def animate(img_path, frames_info, writer=None):
+	img = cv2.imread(img_path)
+	rect1, rect2, img = normalize_frames(frames_info, img)
+	global framesForImg, fps, quality
+	for i in range(framesForImg):
+		x1 = int(getPoint(i, rect1[0], rect2[0], fps * secondsForFrame))
+		y1 = int(getPoint(i, rect1[1], rect2[1], fps * secondsForFrame))
+		x2 = int(getPoint(i, rect1[2], rect2[2], fps * secondsForFrame))
+		y2 = int(getPoint(i, rect1[3], rect2[3], fps * secondsForFrame))
+
+		x1, y1, x2, y2 = normalize_coords([x1, y1, x2, y2])
+
+
+		frame = cv2.resize(img.copy()[y1:y2, x1:x2], quality)
+		fadeInStop = fps * fadeDur
+		fadeOutStart = framesForImg - fps * fadeDur
+		if i < fadeInStop:
+			frame = changeBrightness(frame, round(i / (fps * fadeDur) * 100))
+		if i > fadeOutStart:
+			frame = changeBrightness(frame, round((framesForImg - i) / fadeInStop * 100))
+		writer.write(frame)
