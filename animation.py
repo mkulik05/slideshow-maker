@@ -8,15 +8,17 @@ import json
 def getPoint(frame, sPoint, fPoint, framesForImg):
   return sPoint + (fPoint - sPoint) * frame // framesForImg
 
-def normalize_coords(coords):
+def normalize_coords(coords, scale_factor):
 	l, b, r, t = coords
 	new_coords = [l, b, r, t]
-	if l > r:
-		new_coords[0] = r
-		new_coords[2] = l
-	if b > t:
-		new_coords[1] = t
-		new_coords[3] = b
+	
+	if new_coords[0] > new_coords[2]:
+		new_coords[0], new_coords[2] = new_coords[2], new_coords[0]
+	if new_coords[1] > new_coords[3]:
+		new_coords[1], new_coords[3] = new_coords[3], new_coords[1]
+	
+
+	 
 	return new_coords
 
 # TODO fix bug
@@ -31,44 +33,60 @@ def addBlackBkg(sourceImg, size):
 	return res
 
 def rescale(img, scale_percent):
-    width = int(img.shape[1] * scale_percent / 100)
-    height = int(img.shape[0] * scale_percent / 100)
-    dim = (width, height)
-    resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
-    return resized
+	width = int(img.shape[1] * scale_percent / 100)
+	height = int(img.shape[0] * scale_percent / 100)
+	dim = (width, height)
+	resized = cv2.resize(img, dim, interpolation=cv2.INTER_AREA)
+	return resized
 
 def scale_rect_based_on_center(rect, scale_factor, center):
-    cx, cy = center
-    l, b, r, t = rect
+	cx, cy = center
+	l, b, r, t = rect
 
-    new_l = cx + (l - cx) * scale_factor
-    new_r = cx + (r - cx) * scale_factor
-    new_b = cy + (b - cy) * scale_factor
-    new_t = cy + (t - cy) * scale_factor
+	new_l = cx + (l - cx) * scale_factor
+	new_r = cx + (r - cx) * scale_factor
+	new_b = cy + (b - cy) * scale_factor
+	new_t = cy + (t - cy) * scale_factor
 
-    return np.array([new_l, new_b, new_r, new_t])
+	return np.array([new_l, new_b, new_r, new_t])
 
 def normalize_frames(frames_info, img):
-	
+	zoom_factor = frames_info["view_zoom"]
 	frame1 = frames_info["frames"][0]
 	frame2 = frames_info["frames"][1]
-	rect1 = np.array(normalize_coords(frame1["rect_specs"]))
-	rect2 = np.array(normalize_coords(frame2["rect_specs"]))
+	rect1 = np.array(normalize_coords(frame1["rect_specs"], zoom_factor))
+	rect2 = np.array(normalize_coords(frame2["rect_specs"], zoom_factor))
 
-	if frame1["scale"] >= frame2["scale"]:
-		scale_factor = frame1["scale"] / frame2["scale"]
-		center = ((rect2[0] + rect2[2]) / 2, (rect2[1] + rect2[3]) / 2)
-		rect2 = scale_rect_based_on_center(rect2, scale_factor, center)
-		frame2["scale"] = frame1["scale"]
-	else:
-		scale_factor = frame2["scale"] / frame1["scale"]
-		center = ((rect1[0] + rect1[2]) / 2, (rect1[1] + rect1[3]) / 2)
-		rect1 = scale_rect_based_on_center(rect1, scale_factor, center)
-		frame1["scale"] = frame2["scale"]
+	print("\n")
+
+	print(img.shape)
+
+	print(frame1)
+	print(frame2)
+
+	print(frame1["rect_specs"])
+	print(frame2["rect_specs"])
+
+	print(rect1)
+	print(rect2)
+
+	# if frame1["scale"] >= frame2["scale"]:
+	# 	scale_factor = frame1["scale"] / frame2["scale"]
+	# 	center = ((rect2[0] + rect2[2]) / 2, (rect2[1] + rect2[3]) / 2)
+	# 	rect2 = scale_rect_based_on_center(rect2, scale_factor, center)
+	# 	frame2["scale"] = frame1["scale"]
+	# else:
+	# 	scale_factor = frame2["scale"] / frame1["scale"]
+	# 	center = ((rect1[0] + rect1[2]) / 2, (rect1[1] + rect1[3]) / 2)
+	# 	rect1 = scale_rect_based_on_center(rect1, scale_factor, center)
+	# 	frame1["scale"] = frame2["scale"]
 	
-	img = rescale(img, frame1["scale"] * 100)
-
+	
+	# img = rescale(img, frame1["scale"] * 100)
+	print(frame1["pixmap_size"])
 	img = addBlackBkg(img, [frame1["pixmap_size"][0], frame1["pixmap_size"][1]])
+	print(rect1)
+	print(rect2)
 	return rect1, rect2, img
 
 
@@ -92,7 +110,7 @@ def animate_preview(frames_info, img_path):
 		x2 = int(getPoint(i, rect1[2], rect2[2], fps * secondsForFrame))
 		y2 = int(getPoint(i, rect1[3], rect2[3], fps * secondsForFrame))
 		
-		x1, y1, x2, y2 = normalize_coords([x1, y1, x2, y2])
+		# x1, y1, x2, y2 = normalize_coords([x1, y1, x2, y2])
 
 		cv2.imshow(
 			"Preview",
@@ -117,19 +135,22 @@ def animate_preview(frames_info, img_path):
 	return k
 
 def changeBrightness(img, br):
-    return np.round(img * (br / 100)).astype(np.uint8)
+	return np.round(img * (br / 100)).astype(np.uint8)
 
-def animate(img_path, frames_info, writer=None):
+def animate(writer, img_path, frames_info, fps, fadeDur, secondsForFrame):
 	img = cv2.imread(img_path)
-	rect1, rect2, img = normalize_frames(frames_info, img)
-	global framesForImg, fps, quality
-	for i in range(framesForImg):
-		x1 = int(getPoint(i, rect1[0], rect2[0], fps * secondsForFrame))
-		y1 = int(getPoint(i, rect1[1], rect2[1], fps * secondsForFrame))
-		x2 = int(getPoint(i, rect1[2], rect2[2], fps * secondsForFrame))
-		y2 = int(getPoint(i, rect1[3], rect2[3], fps * secondsForFrame))
 
-		x1, y1, x2, y2 = normalize_coords([x1, y1, x2, y2])
+	rect1, rect2, img = normalize_frames(frames_info, img)
+	framesForImg = secondsForFrame * fps
+	quality = [1920, 1080]
+	for i in range(framesForImg):
+		print(i)
+		x1 = int(getPoint(i, rect1[0], rect2[0], framesForImg))
+		y1 = int(getPoint(i, rect1[1], rect2[1], framesForImg))
+		x2 = int(getPoint(i, rect1[2], rect2[2], framesForImg))
+		y2 = int(getPoint(i, rect1[3], rect2[3], framesForImg))
+
+		# x1, y1, x2, y2 = normalize_coords([x1, y1, x2, y2])
 
 
 		frame = cv2.resize(img.copy()[y1:y2, x1:x2], quality)
